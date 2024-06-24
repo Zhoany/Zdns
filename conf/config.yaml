@@ -1,0 +1,29 @@
+server:
+  address: ":53530"
+  resolve_ipv6: true
+  cache_size: 2000
+  max_connects: 500
+  max_workers: 500
+  max_clients: 7000
+  enable_logging: true
+
+upstream_servers:
+  - address: "223.5.5.5"
+    port: "53"
+    protocol: "UDP"
+    domain_rules_file: "conf/china-list.txt"
+  - address: "114.114.114.114"
+    port: "53"
+    protocol: "UDP"
+    domain_rules_file: "conf/apple-cn.txt"
+  - address: "10.61.10.100"
+    port: "53"
+    protocol: "UDP"
+    domain_rules_file: "conf/syno-internal.txt"
+
+blocklist_file: "conf/blocklist.txt"
+
+common_upstream:
+  address: "https://dns.google/dns-query"
+  port: "443"
+  protocol: "DoH"
