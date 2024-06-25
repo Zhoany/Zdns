@@ -7,9 +7,7 @@ import (
 	"NEWzDNS/pool"
 	"NEWzDNS/rule"
 	"encoding/base64"
-	
 	"io"
-	
 	"strings"
 	"time"
 
@@ -55,23 +53,19 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if r == nil {
-		
 		return
 	}
-
-	
 
 	msg := dns.Msg{}
 	msg.SetReply(r)
 	msg.Authoritative = true
 
 	for _, q := range r.Question {
-		// Remove the trailing dot from the domain
-		//domain := strings.TrimSuffix(q.Name, ".")
-
 		blocked := rule.IsBlocked(q.Name)
 		if blocked {
-		//	fmt.Printf("Blocked query from %s for domain %s\n", clientIP, q.Name)
+			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+				log.RequestLogger.Warn("Blocked query for domain", zap.String("domain", q.Name))
+			}
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(&msg)
 			return
@@ -80,35 +74,45 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		cached, found := dnsCache.Get(q.Name)
 		if found {
 			if responseMsg, ok := cached.(*dns.Msg); ok {
-		//		fmt.Printf("Cache hit for domain %s from %s\n", q.Name, clientIP)
+				if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+					log.RequestLogger.Info("Cache hit for domain", zap.String("domain", q.Name))
+				}
 				responseMsg.SetReply(r)
 				w.WriteMsg(responseMsg)
+				logRequestAndResponse(r, responseMsg)
 				return
 			}
 		}
 
 		upstream, _, found := rule.MatchDomain(q.Name)
 		if found {
-		//	fmt.Printf("Domain %s matched rule %s, forwarding to upstream %s\n", q.Name, rule, upstream.Address)
+			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+				log.RequestLogger.Info("Matched rule for domain", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
+			}
 		} else {
 			upstream = config.Cfg.CommonUpstream
-		//	fmt.Printf("Domain %s not matched, using common upstream %s\n", q.Name, upstream.Address)
+			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+				log.RequestLogger.Info("Using common upstream for domain", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
+			}
 		}
 
 		response, err := forwardDNSRequest(q, upstream, r.Id)
 		if err != nil {
-		//	fmt.Printf("Failed to forward DNS request for domain %s from %s: %v\n", q.Name, clientIP, err)
+			if config.Cfg.Server.EnableLogging && log.ErrorLogger != nil {
+				log.ErrorLogger.Error("Failed to forward DNS request", zap.String("domain", q.Name), zap.Error(err))
+			}
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(&msg)
 			return
 		}
 
-	//	fmt.Printf("Forwarded DNS request for domain %s from %s to upstream %s\n", q.Name, clientIP, upstream.Address)
+		if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+			log.RequestLogger.Info("Forwarded DNS request", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
+		}
 
 		// 仅缓存 IPv4 或 IPv6 的解析结果
 		for _, answer := range response.Answer {
-			if (  answer.Header().Rrtype == dns.TypeAAAA) ||
-				( answer.Header().Rrtype == dns.TypeA) {
+			if answer.Header().Rrtype == dns.TypeAAAA || answer.Header().Rrtype == dns.TypeA {
 				dnsCache.Set(q.Name, response)
 				break
 			}
@@ -116,6 +120,15 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 		response.SetReply(r)
 		w.WriteMsg(response)
+		logRequestAndResponse(r, response)
+	}
+}
+
+func logRequestAndResponse(request *dns.Msg, response *dns.Msg) {
+	if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
+		log.RequestLogger.Info("DNS Request",
+			zap.String("request", request.String()),
+			zap.String("response", response.String()))
 	}
 }
 

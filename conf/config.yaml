@@ -6,6 +6,8 @@ server:
   max_workers: 500
   max_clients: 7000
   enable_logging: true
+  log_max_size: 50       # 每个日志文件的最大大小 (MB)
+  log_max_backups: 7     # 保留的最大备份数量
 
 upstream_servers:
   - address: "223.5.5.5"

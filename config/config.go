@@ -19,6 +19,8 @@ type ServerConfig struct {
 	MaxWorkers    int    `mapstructure:"max_workers"`
 	MaxClients    int    `mapstructure:"max_clients"`
 	EnableLogging bool   `mapstructure:"enable_logging"`
+	LogMaxSize    int    `mapstructure:"log_max_size"`
+	LogMaxBackups int    `mapstructure:"log_max_backups"`
 }
 
 type Config struct {
