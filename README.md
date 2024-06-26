@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Zdns-new is a Go-based project for efficiently handling DNS requests. The project achieves caching, logging, configuration management, rule matching, and more through the collaboration of multiple modules.
+Zdns is a Go-based project for efficiently handling DNS requests. The project achieves caching, logging, configuration management, rule matching, and more through the collaboration of multiple modules.
 
 ## Quick Start
 
