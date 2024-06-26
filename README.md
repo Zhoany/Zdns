@@ -56,7 +56,7 @@ The configuration file is located at `conf/config.yaml`. You can modify this fil
 
 A list of upstream DNS servers. Each server entry includes:
 
-- `address`: The IP address of the upstream DNS server.
+- `address`: The  address of the upstream DNS server.
 - `port`: The port of the upstream DNS server.
 - `protocol`: The protocol used to communicate with the upstream DNS server (e.g., `UDP`).
 - `domain_rules_file`: Path to the file containing domain-specific rules for this upstream server.

@@ -51,10 +51,9 @@ func InitLogger() error {
 func newLogger(logPath string) *zap.SugaredLogger {
 	lj := &lumberjack.Logger{
 		Filename:   logPath,
-		MaxSize:    config.Cfg.Server.LogMaxSize,    // 每个日志文件最大100 MB
-		MaxBackups: config.Cfg.Server.LogMaxBackups, // 保留最多7个备份
-		MaxAge:     7,                               // 保留7天
-		Compress:   true,                            // 启用压缩
+		MaxSize:    config.Cfg.Server.LogMaxSize,    
+		MaxBackups: config.Cfg.Server.LogMaxBackups, 
+		Compress:   true,                            
 	}
 
 	w := zapcore.AddSync(lj)

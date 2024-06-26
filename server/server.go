@@ -19,11 +19,12 @@ import (
 
 var dnsCache *cache.Cache
 
+// StartDNSServer initializes and starts the DNS server
 func StartDNSServer(sem chan struct{}) {
 	dnsCache = cache.NewCache(int64(config.Cfg.Server.CacheSize))
 	dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
 		handleDNSRequestWrapper(w, r, sem)
-	}) // 包装 handleDNSRequest
+	}) // Wraps handleDNSRequest
 	server := &dns.Server{Addr: config.Cfg.Server.Address, Net: "udp"}
 	if err := server.ListenAndServe(); err != nil {
 		if config.Cfg.Server.EnableLogging && log.ErrorLogger != nil {
@@ -32,16 +33,16 @@ func StartDNSServer(sem chan struct{}) {
 	}
 }
 
-// 包装 handleDNSRequest 以限制并发连接数
+// handleDNSRequestWrapper wraps handleDNSRequest to limit the number of concurrent connections
 func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}) {
 	select {
-	case sem <- struct{}{}: // 尝试向管道发送一个信号
-		defer func() { <-sem }() // 处理完后从管道中读取信号，以释放一个工作槽
+	case sem <- struct{}{}: // Try to send a signal to the channel
+		defer func() { <-sem }() // Read the signal from the channel after handling to free up a slot
 		pool.SubmitToAnts(func() {
 			handleDNSRequest(w, r)
 		})
 	default:
-		// 超过最大并发数，返回错误
+		// If the maximum concurrency is exceeded, return an error
 		if config.Cfg.Server.EnableLogging && log.ErrorLogger != nil {
 			log.ErrorLogger.Warn("Too many concurrent requests")
 		}
@@ -51,6 +52,7 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 	}
 }
 
+// handleDNSRequest processes the DNS request
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if r == nil {
 		return
@@ -110,7 +112,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			log.RequestLogger.Info("Forwarded DNS request", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
 		}
 
-		// 仅缓存 IPv4 或 IPv6 的解析结果
+		// Only store IPv4 or IPv6
 		for _, answer := range response.Answer {
 			if answer.Header().Rrtype == dns.TypeAAAA || answer.Header().Rrtype == dns.TypeA {
 				dnsCache.Set(q.Name, response)
@@ -124,6 +126,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
+// logRequestAndResponse logs the DNS request and response
 func logRequestAndResponse(request *dns.Msg, response *dns.Msg) {
 	if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
 		log.RequestLogger.Info("DNS Request",
@@ -132,6 +135,7 @@ func logRequestAndResponse(request *dns.Msg, response *dns.Msg) {
 	}
 }
 
+// forwardDNSRequest forwards the DNS request to the upstream server
 func forwardDNSRequest(q dns.Question, upstream config.Upstream, id uint16) (*dns.Msg, error) {
 	msg := new(dns.Msg)
 	msg.SetQuestion(q.Name, q.Qtype)
@@ -156,6 +160,7 @@ func forwardDNSRequest(q dns.Question, upstream config.Upstream, id uint16) (*dn
 	return response, nil
 }
 
+// forwardDoHRequest forwards the DNS over HTTPS request
 func forwardDoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	dnsRequest, err := msg.Pack()
 	if err != nil {
@@ -195,6 +200,7 @@ func forwardDoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	return dnsResponse, nil
 }
 
+// appendPort appends the port to the address if it is not already included
 func appendPort(address, port string) string {
 	if !strings.Contains(address, ":") {
 		return address + ":" + port
@@ -202,6 +208,7 @@ func appendPort(address, port string) string {
 	return address
 }
 
+// StartAdminServer initializes and starts the admin server
 func StartAdminServer(addr string) {
 	gin.SetMode(gin.ReleaseMode)
 	gin.DefaultWriter = io.Discard
@@ -216,6 +223,7 @@ func StartAdminServer(addr string) {
 	}
 }
 
+// adminRequestHandler handles requests to the admin server
 func adminRequestHandler(c *gin.Context) {
 	c.String(200, "Admin server is running")
 }
