@@ -66,6 +66,15 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	for _, q := range r.Question {
 		blocked := rule.IsBlocked(q.Name)
 		if blocked {
+			clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
+			if err != nil {
+				clientIP = "unknown"
+			}
+			log.BlockLogger.Info(
+				"client_ip:", clientIP,
+				" domain:", q.Name,
+				" STATUS:", "BLOCKED",
+			)
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(&msg)
 			return

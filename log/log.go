@@ -13,6 +13,7 @@ import (
 var (
 	RequestLogger *zap.SugaredLogger
 	ErrorLogger   *zap.SugaredLogger
+	BlockLogger   *zap.SugaredLogger
 )
 
 func InitLogger() error {
@@ -44,6 +45,12 @@ func InitLogger() error {
 		return fmt.Errorf("failed to initialize error logger")
 	}
 	ErrorLogger = errorLogger
+	blockLogger := newLogger(filepath.Join(logDir, "blocked.log"))
+	if blockLogger == nil {
+		fmt.Println("Failed to initialize error logger")
+		return fmt.Errorf("failed to initialize error logger")
+	}
+	BlockLogger = blockLogger
 
 	return nil
 }
@@ -51,9 +58,9 @@ func InitLogger() error {
 func newLogger(logPath string) *zap.SugaredLogger {
 	lj := &lumberjack.Logger{
 		Filename:   logPath,
-		MaxSize:    config.Cfg.Server.LogMaxSize,    
-		MaxBackups: config.Cfg.Server.LogMaxBackups, 
-		Compress:   true,                            
+		MaxSize:    config.Cfg.Server.LogMaxSize,
+		MaxBackups: config.Cfg.Server.LogMaxBackups,
+		Compress:   true,
 	}
 
 	w := zapcore.AddSync(lj)
@@ -75,5 +82,8 @@ func Sync() {
 	}
 	if ErrorLogger != nil {
 		ErrorLogger.Sync()
+	}
+	if BlockLogger != nil {
+		BlockLogger.Sync()
 	}
 }
