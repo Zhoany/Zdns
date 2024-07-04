@@ -162,7 +162,7 @@ func logRequestInfo(w dns.ResponseWriter, domain string, response *dns.Msg, upst
 
 	if resolvedResults.Len() > 0 {
 		log.RequestLogger.Info(
-			"client_ip", clientIP,
+			"client_ip:", clientIP,
 			" domain:", domain,
 			" resolved_results:", resolvedResults.String(),
 			" upstream:", upstream,
