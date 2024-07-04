@@ -7,6 +7,9 @@ import (
 	"NEWzDNS/pool"
 	"NEWzDNS/rule"
 	"encoding/base64"
+
+	"net"
+
 	"io"
 	"strings"
 	"time"
@@ -32,13 +35,12 @@ func StartDNSServer(sem chan struct{}) {
 		}
 	}
 }
-
-// handleDNSRequestWrapper wraps handleDNSRequest to limit the number of concurrent connections
 func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}) {
 	select {
 	case sem <- struct{}{}: // Try to send a signal to the channel
 		defer func() { <-sem }() // Read the signal from the channel after handling to free up a slot
 		pool.SubmitToAnts(func() {
+
 			handleDNSRequest(w, r)
 		})
 	default:
@@ -52,7 +54,6 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 	}
 }
 
-// handleDNSRequest processes the DNS request
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if r == nil {
 		return
@@ -65,9 +66,6 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	for _, q := range r.Question {
 		blocked := rule.IsBlocked(q.Name)
 		if blocked {
-			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-				log.RequestLogger.Warn("Blocked query for domain", zap.String("domain", q.Name))
-			}
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(&msg)
 			return
@@ -76,62 +74,99 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		cached, found := dnsCache.Get(q.Name)
 		if found {
 			if responseMsg, ok := cached.(*dns.Msg); ok {
-				if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-					log.RequestLogger.Info("Cache hit for domain", zap.String("domain", q.Name))
-				}
+				logRequestInfo(w, q.Name, responseMsg, "cache")
 				responseMsg.SetReply(r)
 				w.WriteMsg(responseMsg)
-				logRequestAndResponse(r, responseMsg)
 				return
 			}
 		}
 
 		upstream, _, found := rule.MatchDomain(q.Name)
-		if found {
-			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-				log.RequestLogger.Info("Matched rule for domain", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
-			}
-		} else {
+		if !found {
 			upstream = config.Cfg.CommonUpstream
-			if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-				log.RequestLogger.Info("Using common upstream for domain", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
-			}
+
 		}
 
-		response, err := forwardDNSRequest(q, upstream, r.Id)
-		if err != nil {
-			if config.Cfg.Server.EnableLogging && log.ErrorLogger != nil {
-				log.ErrorLogger.Error("Failed to forward DNS request", zap.String("domain", q.Name), zap.Error(err))
-			}
+		var ipv4Response, ipv6Response *dns.Msg
+		var ipv4Err, ipv6Err error
+
+		// Forward DNS request for A record (IPv4)
+		q4 := dns.Question{Name: q.Name, Qtype: dns.TypeA, Qclass: dns.ClassINET}
+		ipv4Response, ipv4Err = forwardDNSRequest(q4, upstream, r.Id)
+
+		// Forward DNS request for AAAA record (IPv6) if resolve_ipv6 is true
+		if config.Cfg.Server.ResolveIPv6 {
+			q6 := dns.Question{Name: q.Name, Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
+			ipv6Response, ipv6Err = forwardDNSRequest(q6, upstream, r.Id)
+		}
+
+		// Merge the results
+		if ipv4Err != nil && (!config.Cfg.Server.ResolveIPv6 || ipv6Err != nil) {
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(&msg)
 			return
 		}
 
-		if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-			log.RequestLogger.Info("Forwarded DNS request", zap.String("domain", q.Name), zap.String("upstream", upstream.Address))
-		}
-
-		// Only store IPv4 or IPv6
-		for _, answer := range response.Answer {
-			if answer.Header().Rrtype == dns.TypeAAAA || answer.Header().Rrtype == dns.TypeA {
-				dnsCache.Set(q.Name, response)
-				break
+		// If both IPv4 and IPv6 responses are present, do not cache
+		if ipv4Response != nil && ipv6Response != nil {
+			ipv4Response.Answer = append(ipv4Response.Answer, ipv6Response.Answer...)
+			logRequestInfo(w, q.Name, ipv4Response, upstream.Address)
+		} else if ipv4Response != nil {
+			// Cache only IPv4 response
+			for _, answer := range ipv4Response.Answer {
+				if answer.Header().Rrtype == dns.TypeA {
+					dnsCache.Set(q.Name, ipv4Response)
+					break
+				}
 			}
+			logRequestInfo(w, q.Name, ipv4Response, upstream.Address)
+		} else if ipv6Response != nil {
+			logRequestInfo(w, q.Name, ipv6Response, upstream.Address)
 		}
 
-		response.SetReply(r)
-		w.WriteMsg(response)
-		logRequestAndResponse(r, response)
+		if ipv4Response != nil {
+			ipv4Response.SetReply(r)
+			w.WriteMsg(ipv4Response)
+		} else if ipv6Response != nil {
+			ipv6Response.SetReply(r)
+			w.WriteMsg(ipv6Response)
+		}
 	}
 }
 
-// logRequestAndResponse logs the DNS request and response
-func logRequestAndResponse(request *dns.Msg, response *dns.Msg) {
-	if config.Cfg.Server.EnableLogging && log.RequestLogger != nil {
-		log.RequestLogger.Info("DNS Request",
-			zap.String("request", request.String()),
-			zap.String("response", response.String()))
+func logRequestInfo(w dns.ResponseWriter, domain string, response *dns.Msg, upstream string) {
+	if !config.Cfg.Server.EnableLogging {
+		return
+	}
+
+	clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
+	if err != nil {
+		clientIP = "unknown"
+	}
+	var resolvedResults strings.Builder
+
+	for _, answer := range response.Answer {
+		switch a := answer.(type) {
+		case *dns.A:
+			if resolvedResults.Len() > 0 {
+				resolvedResults.WriteString(", ")
+			}
+			resolvedResults.WriteString(a.A.String())
+		case *dns.AAAA:
+			if resolvedResults.Len() > 0 {
+				resolvedResults.WriteString(", ")
+			}
+			resolvedResults.WriteString(a.AAAA.String())
+		}
+	}
+
+	if resolvedResults.Len() > 0 {
+		log.RequestLogger.Info(
+			"client_ip", clientIP,
+			" domain:", domain,
+			" resolved_results:", resolvedResults.String(),
+			" upstream:", upstream,
+		)
 	}
 }
 

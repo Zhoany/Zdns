@@ -1,12 +1,12 @@
 server:
   address: ":53530"
-  resolve_ipv6: true
+  resolve_ipv6: false
   cache_size: 2000
-  max_connects: 500
-  max_workers: 500
-  max_clients: 7000
+  max_connects: 550
+  max_workers: 550
+  max_clients: 4500
   enable_logging: true
-  log_max_size: 50       # 每个日志文件的最大大小 (MB)
+  log_max_size: 5       # 每个日志文件的最大大小 (MB)
   log_max_backups: 7     # 保留的最大备份数量
 
 upstream_servers:
