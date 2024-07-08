@@ -3,11 +3,14 @@ package log
 import (
 	"NEWzDNS/config"
 	"fmt"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -75,7 +78,41 @@ func newLogger(logPath string) *zap.SugaredLogger {
 	logger := zap.New(core)
 	return logger.Sugar()
 }
+func RequestInfo(w dns.ResponseWriter, domain string, response *dns.Msg, upstream string) {
+	if !config.Cfg.Server.EnableLogging {
+		return
+	}
 
+	clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
+	if err != nil {
+		clientIP = "unknown"
+	}
+	var resolvedResults strings.Builder
+
+	for _, answer := range response.Answer {
+		switch a := answer.(type) {
+		case *dns.A:
+			if resolvedResults.Len() > 0 {
+				resolvedResults.WriteString(", ")
+			}
+			resolvedResults.WriteString(a.A.String())
+		case *dns.AAAA:
+			if resolvedResults.Len() > 0 {
+				resolvedResults.WriteString(", ")
+			}
+			resolvedResults.WriteString(a.AAAA.String())
+		}
+	}
+
+	if resolvedResults.Len() > 0 {
+		RequestLogger.Info(
+			"client_ip:", clientIP,
+			" domain:", domain,
+			" resolved_results:", resolvedResults.String(),
+			" upstream:", upstream,
+		)
+	}
+}
 func Sync() {
 	if RequestLogger != nil {
 		RequestLogger.Sync()

@@ -1,9 +1,9 @@
 package rule
 
 import (
-	"bufio"
 	"NEWzDNS/config"
 	"NEWzDNS/matcher"
+	"bufio"
 	"os"
 	"strings"
 )
@@ -26,10 +26,15 @@ func LoadUpstreamRules() {
 func loadRulesFromFile(filename string, upstream config.Upstream, addRuleFunc func(string, config.Upstream)) {
 	file, err := os.Open(filename)
 	if err != nil {
-		
+
 		return
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+
+		}
+	}(file)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -40,37 +45,42 @@ func loadRulesFromFile(filename string, upstream config.Upstream, addRuleFunc fu
 				domain += "."
 			}
 			addRuleFunc(domain, upstream)
-			
+
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		
+
 	}
 }
 
 // LoadBlocklist loads the blocklist
 func LoadBlocklist() {
 	file, err := os.Open(config.Cfg.BlocklistFile)
-	if (err != nil) {
-		
+	if err != nil {
+
 		return
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+
+		}
+	}(file)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		domain := strings.TrimSpace(scanner.Text())
 		if domain != "" {
 			// If the domain does not end with `.`, add it
-			if (!strings.HasSuffix(domain, ".")) {
+			if !strings.HasSuffix(domain, ".") {
 				domain += "."
 			}
 			domainMatcher.AddBlocked(domain)
-			
+
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		
+
 	}
 }
 

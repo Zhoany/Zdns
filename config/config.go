@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"github.com/spf13/viper"
 )
 
@@ -42,5 +43,14 @@ func LoadConfig(filename string) error {
 	if err != nil {
 		return err
 	}
+
+	// Combine address and port for each upstream server
+	for i, upstream := range Cfg.UpstreamServers {
+		Cfg.UpstreamServers[i].Address = fmt.Sprintf("%s:%s", upstream.Address, upstream.Port)
+	}
+
+	// Combine address and port for common upstream
+	Cfg.CommonUpstream.Address = fmt.Sprintf("%s:%s", Cfg.CommonUpstream.Address, Cfg.CommonUpstream.Port)
+
 	return nil
 }

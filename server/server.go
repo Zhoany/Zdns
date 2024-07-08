@@ -3,21 +3,15 @@ package server
 import (
 	"NEWzDNS/cache"
 	"NEWzDNS/config"
+	"NEWzDNS/forward"
 	"NEWzDNS/log"
 	"NEWzDNS/pool"
 	"NEWzDNS/rule"
-	"encoding/base64"
-
-	"net"
-
-	"io"
-	"strings"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/miekg/dns"
-	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
+	"io"
+	"net"
 )
 
 var dnsCache *cache.Cache
@@ -50,7 +44,10 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 		}
 		msg := new(dns.Msg)
 		msg.SetRcode(r, dns.RcodeServerFailure)
-		w.WriteMsg(msg)
+		err := w.WriteMsg(msg)
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -76,16 +73,22 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 				" STATUS:", "BLOCKED",
 			)
 			msg.SetRcode(r, dns.RcodeNameError)
-			w.WriteMsg(&msg)
+			err = w.WriteMsg(&msg)
+			if err != nil {
+				return
+			}
 			return
 		}
 
 		cached, found := dnsCache.Get(q.Name)
 		if found {
 			if responseMsg, ok := cached.(*dns.Msg); ok {
-				logRequestInfo(w, q.Name, responseMsg, "cache")
+				log.RequestInfo(w, q.Name, responseMsg, "cache")
 				responseMsg.SetReply(r)
-				w.WriteMsg(responseMsg)
+				err := w.WriteMsg(responseMsg)
+				if err != nil {
+					return
+				}
 				return
 			}
 		}
@@ -112,14 +115,17 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		// Merge the results
 		if ipv4Err != nil && (!config.Cfg.Server.ResolveIPv6 || ipv6Err != nil) {
 			msg.SetRcode(r, dns.RcodeServerFailure)
-			w.WriteMsg(&msg)
+			err := w.WriteMsg(&msg)
+			if err != nil {
+				return
+			}
 			return
 		}
 
 		// If both IPv4 and IPv6 responses are present, do not cache
 		if ipv4Response != nil && ipv6Response != nil {
 			ipv4Response.Answer = append(ipv4Response.Answer, ipv6Response.Answer...)
-			logRequestInfo(w, q.Name, ipv4Response, upstream.Address)
+			log.RequestInfo(w, q.Name, ipv4Response, upstream.Address)
 		} else if ipv4Response != nil {
 			// Cache only IPv4 response
 			for _, answer := range ipv4Response.Answer {
@@ -128,54 +134,24 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					break
 				}
 			}
-			logRequestInfo(w, q.Name, ipv4Response, upstream.Address)
+			log.RequestInfo(w, q.Name, ipv4Response, upstream.Address)
 		} else if ipv6Response != nil {
-			logRequestInfo(w, q.Name, ipv6Response, upstream.Address)
+			log.RequestInfo(w, q.Name, ipv6Response, upstream.Address)
 		}
 
 		if ipv4Response != nil {
 			ipv4Response.SetReply(r)
-			w.WriteMsg(ipv4Response)
+			err := w.WriteMsg(ipv4Response)
+			if err != nil {
+				return
+			}
 		} else if ipv6Response != nil {
 			ipv6Response.SetReply(r)
-			w.WriteMsg(ipv6Response)
-		}
-	}
-}
-
-func logRequestInfo(w dns.ResponseWriter, domain string, response *dns.Msg, upstream string) {
-	if !config.Cfg.Server.EnableLogging {
-		return
-	}
-
-	clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
-	if err != nil {
-		clientIP = "unknown"
-	}
-	var resolvedResults strings.Builder
-
-	for _, answer := range response.Answer {
-		switch a := answer.(type) {
-		case *dns.A:
-			if resolvedResults.Len() > 0 {
-				resolvedResults.WriteString(", ")
+			err := w.WriteMsg(ipv6Response)
+			if err != nil {
+				return
 			}
-			resolvedResults.WriteString(a.A.String())
-		case *dns.AAAA:
-			if resolvedResults.Len() > 0 {
-				resolvedResults.WriteString(", ")
-			}
-			resolvedResults.WriteString(a.AAAA.String())
 		}
-	}
-
-	if resolvedResults.Len() > 0 {
-		log.RequestLogger.Info(
-			"client_ip:", clientIP,
-			" domain:", domain,
-			" resolved_results:", resolvedResults.String(),
-			" upstream:", upstream,
-		)
 	}
 }
 
@@ -189,67 +165,17 @@ func forwardDNSRequest(q dns.Question, upstream config.Upstream, id uint16) (*dn
 	var response *dns.Msg
 	var err error
 
-	address := appendPort(upstream.Address, upstream.Port)
-
-	if upstream.Protocol == "DoH" {
-		response, err = forwardDoHRequest(msg, address)
-	} else {
+	switch upstream.Protocol {
+	case "DoH":
+		response, err = forward.DoHRequest(msg, upstream.Address)
+	case "UDP":
 		client := new(dns.Client)
-		response, _, err = client.Exchange(msg, address)
+		response, _, err = client.Exchange(msg, upstream.Address)
 	}
-
 	if err != nil {
 		return nil, err
 	}
 	return response, nil
-}
-
-// forwardDoHRequest forwards the DNS over HTTPS request
-func forwardDoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
-	dnsRequest, err := msg.Pack()
-	if err != nil {
-		return nil, err
-	}
-
-	encodedRequest := base64.RawURLEncoding.EncodeToString(dnsRequest)
-
-	req := fasthttp.AcquireRequest()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(upstream + "?dns=" + encodedRequest)
-	req.Header.SetMethod(fasthttp.MethodGet)
-	req.Header.Set("Accept", "application/dns-message")
-
-	resp := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(resp)
-
-	client := pool.GetClient()
-	defer pool.ReturnClient(client)
-
-	err = client.DoTimeout(req, resp, 5*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode() != fasthttp.StatusOK {
-		return nil, err
-	}
-
-	body := resp.Body()
-	dnsResponse := new(dns.Msg)
-	if err := dnsResponse.Unpack(body); err != nil {
-		return nil, err
-	}
-
-	return dnsResponse, nil
-}
-
-// appendPort appends the port to the address if it is not already included
-func appendPort(address, port string) string {
-	if !strings.Contains(address, ":") {
-		return address + ":" + port
-	}
-	return address
 }
 
 // StartAdminServer initializes and starts the admin server

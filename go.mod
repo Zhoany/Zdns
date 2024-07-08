@@ -1,6 +1,6 @@
 module NEWzDNS
 
-go 1.22.4
+go 1.22.5
 
 require (
 	github.com/dgraph-io/ristretto v0.1.1
