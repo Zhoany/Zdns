@@ -115,12 +115,21 @@ func RequestInfo(w dns.ResponseWriter, domain string, response *dns.Msg, upstrea
 }
 func Sync() {
 	if RequestLogger != nil {
-		RequestLogger.Sync()
+		err := RequestLogger.Sync()
+		if err != nil {
+			return
+		}
 	}
 	if ErrorLogger != nil {
-		ErrorLogger.Sync()
+		err := ErrorLogger.Sync()
+		if err != nil {
+			return
+		}
 	}
 	if BlockLogger != nil {
-		BlockLogger.Sync()
+		err := BlockLogger.Sync()
+		if err != nil {
+			return
+		}
 	}
 }

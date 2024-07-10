@@ -40,6 +40,7 @@ func DoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	}
 
 	body := resp.Body()
+
 	dnsResponse := new(dns.Msg)
 	if err := dnsResponse.Unpack(body); err != nil {
 		return nil, err

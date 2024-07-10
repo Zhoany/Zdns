@@ -50,7 +50,6 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 		}
 	}
 }
-
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if r == nil {
 		return
@@ -61,6 +60,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	msg.Authoritative = true
 
 	for _, q := range r.Question {
+
 		blocked := rule.IsBlocked(q.Name)
 		if blocked {
 			clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
@@ -84,7 +84,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		cached, found := dnsCache.Get(cacheKey)
 		if found {
 			if responseMsg, ok := cached.(*dns.Msg); ok {
-				log.RequestInfo(w, q.Name, responseMsg, "cache")
+				log.RequestInfo(w, cacheKey, responseMsg, "cache")
 				responseMsg.SetReply(r)
 				err := w.WriteMsg(responseMsg)
 				if err != nil {
@@ -104,7 +104,6 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 		switch q.Qtype {
 		case dns.TypeA:
-			// Forward DNS request for A record (IPv4)
 			response, err = forwardDNSRequest(q, upstream, r.Id)
 			if err == nil && response != nil {
 				for _, answer := range response.Answer {
@@ -113,7 +112,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 						break
 					}
 				}
-				log.RequestInfo(w, q.Name, response, upstream.Address)
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
 				response.SetReply(r)
 				err = w.WriteMsg(response)
 				if err != nil {
@@ -122,35 +121,122 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			}
 
 		case dns.TypeAAAA:
-			// Check if IPv6 is enabled
 			if config.Cfg.Server.ResolveIPv6 {
-				// Forward DNS request for AAAA record (IPv6)
 				response, err = forwardDNSRequest(q, upstream, r.Id)
 				if err == nil && response != nil {
 					for _, answer := range response.Answer {
 						if answer.Header().Rrtype == dns.TypeAAAA {
 							dnsCache.Set(cacheKey, response)
+
 							break
 						}
 					}
-					log.RequestInfo(w, q.Name, response, upstream.Address)
+					log.RequestInfo(w, cacheKey, response, upstream.Address)
+
 					response.SetReply(r)
 					err = w.WriteMsg(response)
 					if err != nil {
 						return
 					}
 				}
-			} else {
-				// IPv6 is disabled, return no response for AAAA requests
-				msg.SetRcode(r, dns.RcodeNameError)
-				err = w.WriteMsg(&msg)
+			}
+
+		case dns.TypeSOA:
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypeSOA {
+						dnsCache.Set(cacheKey, response)
+
+						break
+					}
+				}
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
+
+				response.SetReply(r)
+				err = w.WriteMsg(response)
+				if err != nil {
+					return
+				}
+			}
+
+		case dns.TypeMX:
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypeMX {
+						dnsCache.Set(cacheKey, response)
+
+						break
+					}
+				}
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
+
+				response.SetReply(r)
+				err = w.WriteMsg(response)
+				if err != nil {
+					return
+				}
+			}
+
+		case dns.TypeNS:
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypeNS {
+						dnsCache.Set(cacheKey, response)
+
+						break
+					}
+				}
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
+
+				response.SetReply(r)
+				err = w.WriteMsg(response)
+				if err != nil {
+					return
+				}
+			}
+
+		case dns.TypePTR:
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypePTR {
+						dnsCache.Set(cacheKey, response)
+
+						break
+					}
+				}
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
+
+				response.SetReply(r)
+				err = w.WriteMsg(response)
+				if err != nil {
+					return
+				}
+			}
+
+		case dns.TypeCNAME:
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypeCNAME {
+						dnsCache.Set(cacheKey, response)
+
+						break
+					}
+				}
+				log.RequestInfo(w, cacheKey, response, upstream.Address)
+
+				response.SetReply(r)
+				err = w.WriteMsg(response)
 				if err != nil {
 					return
 				}
 			}
 
 		default:
-			// Unsupported query type, return server failure
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			err = w.WriteMsg(&msg)
 			if err != nil {
