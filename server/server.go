@@ -80,7 +80,8 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
-		cached, found := dnsCache.Get(q.Name)
+		cacheKey := q.Name + "-" + dns.TypeToString[q.Qtype]
+		cached, found := dnsCache.Get(cacheKey)
 		if found {
 			if responseMsg, ok := cached.(*dns.Msg); ok {
 				log.RequestInfo(w, q.Name, responseMsg, "cache")
@@ -96,58 +97,62 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		upstream, _, found := rule.MatchDomain(q.Name)
 		if !found {
 			upstream = config.Cfg.CommonUpstream
-
 		}
 
-		var ipv4Response, ipv6Response *dns.Msg
-		var ipv4Err, ipv6Err error
+		var response *dns.Msg
+		var err error
 
-		// Forward DNS request for A record (IPv4)
-		q4 := dns.Question{Name: q.Name, Qtype: dns.TypeA, Qclass: dns.ClassINET}
-		ipv4Response, ipv4Err = forwardDNSRequest(q4, upstream, r.Id)
-
-		// Forward DNS request for AAAA record (IPv6) if resolve_ipv6 is true
-		if config.Cfg.Server.ResolveIPv6 {
-			q6 := dns.Question{Name: q.Name, Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
-			ipv6Response, ipv6Err = forwardDNSRequest(q6, upstream, r.Id)
-		}
-
-		// Merge the results
-		if ipv4Err != nil && (!config.Cfg.Server.ResolveIPv6 || ipv6Err != nil) {
-			msg.SetRcode(r, dns.RcodeServerFailure)
-			err := w.WriteMsg(&msg)
-			if err != nil {
-				return
-			}
-			return
-		}
-
-		// If both IPv4 and IPv6 responses are present, do not cache
-		if ipv4Response != nil && ipv6Response != nil {
-			ipv4Response.Answer = append(ipv4Response.Answer, ipv6Response.Answer...)
-			log.RequestInfo(w, q.Name, ipv4Response, upstream.Address)
-		} else if ipv4Response != nil {
-			// Cache only IPv4 response
-			for _, answer := range ipv4Response.Answer {
-				if answer.Header().Rrtype == dns.TypeA {
-					dnsCache.Set(q.Name, ipv4Response)
-					break
+		switch q.Qtype {
+		case dns.TypeA:
+			// Forward DNS request for A record (IPv4)
+			response, err = forwardDNSRequest(q, upstream, r.Id)
+			if err == nil && response != nil {
+				for _, answer := range response.Answer {
+					if answer.Header().Rrtype == dns.TypeA {
+						dnsCache.Set(cacheKey, response)
+						break
+					}
+				}
+				log.RequestInfo(w, q.Name, response, upstream.Address)
+				response.SetReply(r)
+				err = w.WriteMsg(response)
+				if err != nil {
+					return
 				}
 			}
-			log.RequestInfo(w, q.Name, ipv4Response, upstream.Address)
-		} else if ipv6Response != nil {
-			log.RequestInfo(w, q.Name, ipv6Response, upstream.Address)
-		}
 
-		if ipv4Response != nil {
-			ipv4Response.SetReply(r)
-			err := w.WriteMsg(ipv4Response)
-			if err != nil {
-				return
+		case dns.TypeAAAA:
+			// Check if IPv6 is enabled
+			if config.Cfg.Server.ResolveIPv6 {
+				// Forward DNS request for AAAA record (IPv6)
+				response, err = forwardDNSRequest(q, upstream, r.Id)
+				if err == nil && response != nil {
+					for _, answer := range response.Answer {
+						if answer.Header().Rrtype == dns.TypeAAAA {
+							dnsCache.Set(cacheKey, response)
+							break
+						}
+					}
+					log.RequestInfo(w, q.Name, response, upstream.Address)
+					response.SetReply(r)
+					err = w.WriteMsg(response)
+					if err != nil {
+						return
+					}
+				}
+			} else {
+				// IPv6 is disabled, return no response for AAAA requests
+				msg.SetRcode(r, dns.RcodeNameError)
+				err = w.WriteMsg(&msg)
+				if err != nil {
+					return
+				}
 			}
-		} else if ipv6Response != nil {
-			ipv6Response.SetReply(r)
-			err := w.WriteMsg(ipv6Response)
+
+		default:
+			// Unsupported query type, return server failure
+			msg.SetRcode(r, dns.RcodeServerFailure)
+			err = w.WriteMsg(&msg)
 			if err != nil {
 				return
 			}
