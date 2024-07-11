@@ -47,7 +47,7 @@ func LoadConfig(filename string) error {
 
 	// Combine address and port for each upstream server
 	for i, upstream := range Cfg.UpstreamServers {
-		if upstream.Protocol == "UDP" {
+		if upstream.Protocol == "UDP" || upstream.Protocol == "DoT" {
 			if net.ParseIP(upstream.Address) != nil {
 				Cfg.UpstreamServers[i].Address = fmt.Sprintf("%s:%s", upstream.Address, upstream.Port)
 			}
@@ -55,7 +55,7 @@ func LoadConfig(filename string) error {
 		}
 
 	}
-	if Cfg.CommonUpstream.Protocol == "UDP" {
+	if Cfg.CommonUpstream.Protocol == "UDP" || Cfg.CommonUpstream.Protocol == "DoT" {
 		// Combine address and port for common upstream
 		Cfg.CommonUpstream.Address = fmt.Sprintf("%s:%s", Cfg.CommonUpstream.Address, Cfg.CommonUpstream.Port)
 	}

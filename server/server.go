@@ -259,6 +259,8 @@ func forwardDNSRequest(q dns.Question, upstream config.Upstream, id uint16) (*dn
 	switch upstream.Protocol {
 	case "DoH":
 		response, err = forward.DoHRequest(msg, upstream.Address)
+	case "DoT":
+		response, err = forward.DoTRequest(msg, upstream.Address)
 	case "UDP":
 		client := new(dns.Client)
 		response, _, err = client.Exchange(msg, upstream.Address)
