@@ -7,6 +7,7 @@ import (
 	"NEWzDNS/log"
 	"NEWzDNS/pool"
 	"NEWzDNS/rule"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -29,12 +30,12 @@ func StartDNSServer(sem chan struct{}) {
 		}
 	}
 }
+
 func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}) {
 	select {
 	case sem <- struct{}{}: // Try to send a signal to the channel
 		defer func() { <-sem }() // Read the signal from the channel after handling to free up a slot
 		pool.SubmitToAnts(func() {
-
 			handleDNSRequest(w, r)
 		})
 	default:
@@ -50,6 +51,7 @@ func handleDNSRequestWrapper(w dns.ResponseWriter, r *dns.Msg, sem chan struct{}
 		}
 	}
 }
+
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if r == nil {
 		return
@@ -94,154 +96,58 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			}
 		}
 
-		upstream, _, found := rule.MatchDomain(q.Name)
-		if !found {
-			upstream = config.Cfg.CommonUpstream
-		}
-
-		var response *dns.Msg
-		var err error
-
-		switch q.Qtype {
-		case dns.TypeA:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypeA {
-						dnsCache.Set(cacheKey, response)
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
+		response, err := resolveCNAMEChain(q, r.Id)
+		if err == nil && response != nil {
+			dnsCache.Set(cacheKey, response)
+			log.RequestInfo(w, cacheKey, response, "")
+			response.SetReply(r)
+			err = w.WriteMsg(response)
+			if err != nil {
+				return
 			}
-
-		case dns.TypeAAAA:
-			if config.Cfg.Server.ResolveIPv6 {
-				response, err = forwardDNSRequest(q, upstream, r.Id)
-				if err == nil && response != nil {
-					for _, answer := range response.Answer {
-						if answer.Header().Rrtype == dns.TypeAAAA {
-							dnsCache.Set(cacheKey, response)
-
-							break
-						}
-					}
-					log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-					response.SetReply(r)
-					err = w.WriteMsg(response)
-					if err != nil {
-						return
-					}
-				}
-			}
-
-		case dns.TypeSOA:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypeSOA {
-						dnsCache.Set(cacheKey, response)
-
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
-			}
-
-		case dns.TypeMX:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypeMX {
-						dnsCache.Set(cacheKey, response)
-
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
-			}
-
-		case dns.TypeNS:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypeNS {
-						dnsCache.Set(cacheKey, response)
-
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
-			}
-
-		case dns.TypePTR:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypePTR {
-						dnsCache.Set(cacheKey, response)
-
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
-			}
-
-		case dns.TypeCNAME:
-			response, err = forwardDNSRequest(q, upstream, r.Id)
-			if err == nil && response != nil {
-				for _, answer := range response.Answer {
-					if answer.Header().Rrtype == dns.TypeCNAME {
-						dnsCache.Set(cacheKey, response)
-
-						break
-					}
-				}
-				log.RequestInfo(w, cacheKey, response, upstream.Address)
-
-				response.SetReply(r)
-				err = w.WriteMsg(response)
-				if err != nil {
-					return
-				}
-			}
-
-		default:
+		} else {
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			err = w.WriteMsg(&msg)
 			if err != nil {
 				return
 			}
+		}
+	}
+}
+
+func resolveCNAMEChain(q dns.Question, id uint16) (*dns.Msg, error) {
+	visited := make(map[string]bool)
+	for {
+		if visited[q.Name] {
+			return nil, fmt.Errorf("CNAME loop detected")
+		}
+		visited[q.Name] = true
+
+		upstream, _, found := rule.MatchDomain(q.Name)
+		if !found {
+			upstream = config.Cfg.CommonUpstream
+		}
+
+		response, err := forwardDNSRequest(q, upstream, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if response == nil {
+			return nil, fmt.Errorf("no response from upstream")
+		}
+
+		cnameFound := false
+		for _, answer := range response.Answer {
+			if answer.Header().Rrtype == dns.TypeCNAME {
+				cnameFound = true
+				q.Name = answer.(*dns.CNAME).Target
+				break
+			}
+		}
+
+		if !cnameFound {
+			return response, nil
 		}
 	}
 }

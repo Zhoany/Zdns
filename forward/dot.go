@@ -20,7 +20,12 @@ func DoTRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func(conn *tls.Conn) {
+		err := conn.Close()
+		if err != nil {
+
+		}
+	}(conn)
 
 	// Write the length-prefixed DNS request
 	length := make([]byte, 2)
