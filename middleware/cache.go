@@ -3,8 +3,11 @@ package middleware
 
 import (
 	//"ZZDNS/logger"
+	"ZZDNS/logger"
 	"ZZDNS/shared"
 	"fmt"
+	"log"
+	"net"
 	"time"
 
 	"github.com/miekg/dns"
@@ -20,6 +23,12 @@ func CacheMiddleware(next dns.Handler) dns.Handler {
 			next.ServeDNS(w, r)
 			return
 		}
+		srcIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
+	if err != nil {
+		//log.Printf("Failed to get source IP: %v", err)
+		dns.HandleFailed(w, r)
+		return
+	}
 		// 生成缓存键
 		key := generateCacheKey(r.Question[0].Name, r.Question[0].Qtype)
 		// 检查缓存中是否存在响应
@@ -27,7 +36,7 @@ func CacheMiddleware(next dns.Handler) dns.Handler {
 			cachedResponse.Id = r.Id  // 使用当前请求的 ID
 			w.WriteMsg(cachedResponse) // 返回缓存的响应
 			
-			//logger.GetLogger().Info(fmt.Sprintf("Cache hit: domain=%s, qtype=%d, id=%d", r.Question[0].Name, r.Question[0].Qtype, r.Id))
+			logger.GetLogger().Info(fmt.Sprintf("Source IP: %s,Cache hit: domain=%s",srcIP, r.Question[0].Name))
 			return
 		}
 
