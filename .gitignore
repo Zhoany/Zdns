@@ -1,0 +1,6 @@
+.idea/
+target/*
+*.tar
+git 
+cfg.data/*
+logs/*

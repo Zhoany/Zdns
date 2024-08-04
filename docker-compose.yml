@@ -1,0 +1,12 @@
+services:
+  myapp:
+    build: .
+    image: zzdns
+    container_name: zzdns-container
+    ports:
+      - "5300:53/udp"
+      - "5300:53/tcp"
+    volumes:
+      - ./cfg.data:/app/cfg.data
+    environment:
+      - TZ=Asia/Shanghai
