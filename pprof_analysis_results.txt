@@ -1,0 +1,68 @@
+File: zzdns
+Type: inuse_space
+Time: Aug 20, 2024 at 11:41am (CST)
+Showing nodes accounting for 7310.95kB, 55.84% of 13093.62kB total
+      flat  flat%   sum%        cum   cum%
+ 6046.14kB 46.18% 46.18%  6046.14kB 46.18%  ZZDNS/config.(*Trie).AddDomainRule
+-1300.89kB  9.94% 36.24% -1300.89kB  9.94%  ZZDNS/config.readAddressesFromFile
+ 1028.76kB  7.86% 44.10%  1028.76kB  7.86%  bytes.growSlice
+  512.50kB  3.91% 48.01%   512.50kB  3.91%  github.com/valyala/fasthttp.allocArg (inline)
+  512.25kB  3.91% 51.92%   512.25kB  3.91%  crypto/internal/bigmod.(*Nat).reset (inline)
+  512.20kB  3.91% 55.84%   512.20kB  3.91%  github.com/valyala/fasthttp.newClientTLSConfig
+         0     0% 55.84%  4745.24kB 36.24%  ZZDNS/config.LoadConfig
+         0     0% 55.84%  2053.46kB 15.68%  ZZDNS/middleware.BlocklistMiddleware.func1
+         0     0% 55.84%  1024.70kB  7.83%  ZZDNS/middleware.CacheMiddleware.func1
+         0     0% 55.84%  2565.71kB 19.60%  ZZDNS/protocol.DoHRequest
+         0     0% 55.84%  2053.46kB 15.68%  ZZDNS/server.forwardToUpstream
+         0     0% 55.84%  2053.46kB 15.68%  ZZDNS/server.sendRequest
+         0     0% 55.84%  1028.76kB  7.86%  bytes.(*Buffer).Grow (inline)
+         0     0% 55.84%  1028.76kB  7.86%  bytes.(*Buffer).grow
+         0     0% 55.84%   512.25kB  3.91%  crypto/internal/bigmod.(*Nat).Add
+         0     0% 55.84%   512.25kB  3.91%  crypto/internal/bigmod.(*Nat).maybeSubtractModulus
+         0     0% 55.84%   512.25kB  3.91%  crypto/internal/bigmod.(*Nat).set (inline)
+         0     0% 55.84%   512.25kB  3.91%  crypto/internal/bigmod.NewModulusFromBig
+         0     0% 55.84%   512.25kB  3.91%  crypto/internal/bigmod.rr
+         0     0% 55.84%   512.25kB  3.91%  crypto/rsa.VerifyPKCS1v15
+         0     0% 55.84%   512.25kB  3.91%  crypto/rsa.encrypt
+         0     0% 55.84%  1541.01kB 11.77%  crypto/tls.(*Conn).Handshake (inline)
+         0     0% 55.84%  1541.01kB 11.77%  crypto/tls.(*Conn).HandshakeContext (inline)
+         0     0% 55.84%  1541.01kB 11.77%  crypto/tls.(*Conn).clientHandshake
+         0     0% 55.84%  1541.01kB 11.77%  crypto/tls.(*Conn).handshakeContext
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).readFromUntil
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).readHandshake
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).readHandshakeBytes
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).readRecord (inline)
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).readRecordOrCCS
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*Conn).retryReadRecord
+         0     0% 55.84%   512.25kB  3.91%  crypto/tls.(*Conn).verifyServerCertificate
+         0     0% 55.84%  1541.01kB 11.77%  crypto/tls.(*clientHandshakeStateTLS13).handshake
+         0     0% 55.84%   512.25kB  3.91%  crypto/tls.(*clientHandshakeStateTLS13).readServerCertificate
+         0     0% 55.84%  1028.76kB  7.86%  crypto/tls.(*clientHandshakeStateTLS13).readServerParameters
+         0     0% 55.84%   512.25kB  3.91%  crypto/x509.(*Certificate).CheckSignatureFrom
+         0     0% 55.84%   512.25kB  3.91%  crypto/x509.(*Certificate).Verify
+         0     0% 55.84%   512.25kB  3.91%  crypto/x509.(*Certificate).buildChains
+         0     0% 55.84%   512.25kB  3.91%  crypto/x509.(*Certificate).buildChains.func1
+         0     0% 55.84%   512.25kB  3.91%  crypto/x509.checkSignature
+         0     0% 55.84%  1024.70kB  7.83%  github.com/miekg/dns.(*Server).serveDNS
+         0     0% 55.84%  1024.70kB  7.83%  github.com/miekg/dns.(*Server).serveUDPPacket
+         0     0% 55.84%  2053.46kB 15.68%  github.com/miekg/dns.HandlerFunc.ServeDNS
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*Client).Do
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*Client).DoTimeout (inline)
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*HostClient).Do
+         0     0% 55.84%  2053.21kB 15.68%  github.com/valyala/fasthttp.(*HostClient).acquireConn
+         0     0% 55.84%   512.20kB  3.91%  github.com/valyala/fasthttp.(*HostClient).cachedTLSConfig
+         0     0% 55.84%  2053.21kB 15.68%  github.com/valyala/fasthttp.(*HostClient).dialHostHard
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*HostClient).do
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*HostClient).doNonNilReqResp
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.(*Response).ReadLimitBody
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.(*ResponseHeader).Read
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.(*ResponseHeader).parse
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.(*ResponseHeader).parseHeaders
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.(*ResponseHeader).tryRead
+         0     0% 55.84%  2565.71kB 19.60%  github.com/valyala/fasthttp.(*transport).RoundTrip
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.appendArg (inline)
+         0     0% 55.84%   512.50kB  3.91%  github.com/valyala/fasthttp.appendArgBytes
+         0     0% 55.84%  1541.01kB 11.77%  github.com/valyala/fasthttp.dialAddr
+         0     0% 55.84%  1541.01kB 11.77%  github.com/valyala/fasthttp.tlsClientHandshake
+         0     0% 55.84%  4745.24kB 36.24%  main.main
+         0     0% 55.84%  4745.24kB 36.24%  runtime.main
