@@ -1,12 +1,13 @@
+version: '3'
 services:
   myapp:
     build: .
-    image: zzdns
-    container_name: zzdns-container
+    image: zzdnsv6:1.0.2
+    container_name: zzdnsv6-container
     ports:
       - "5300:53/udp"
       - "5300:53/tcp"
     volumes:
       - ./cfg.data:/app/cfg.data
-    environment:
-      - TZ=Asia/Shanghai
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro

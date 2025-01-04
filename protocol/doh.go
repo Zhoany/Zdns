@@ -4,12 +4,10 @@ import (
 	"encoding/base64"
 	"time"
 
-	"ZZDNS/pool"
+	"ZZDNS/shared"
 	"github.com/miekg/dns"
 	"github.com/valyala/fasthttp"
 )
-
-var dohPool = pool.NewPool()
 
 func DoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	dnsRequest, err := msg.Pack()
@@ -29,10 +27,8 @@ func DoHRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	client := dohPool.GetHttpClient()
-	defer dohPool.PutHttpClient(client)
-
-	err = client.DoTimeout(req, resp, 5*time.Second)
+	// 使用 shared.HttpClient
+	err = shared.HttpClient.DoTimeout(req, resp, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}

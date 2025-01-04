@@ -62,12 +62,8 @@ func (c *DnsCache) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	now := time.Now()
-	for key, item := range c.items {
-		if now.After(item.Expiration) {
-			delete(c.items, key)
-		}
-	}
+	// 直接清空整个缓存
+	c.items = make(map[string]CacheItem)
 }
 func (c *DnsCache) PrintAllItems() {
 	c.mu.RLock()

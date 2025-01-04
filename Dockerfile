@@ -1,12 +1,6 @@
 # 使用 Alpine 作为基础镜像
 FROM alpine:latest
 
-# 设置时区为上海
-RUN apk add --no-cache tzdata     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime     && echo "Asia/Shanghai" > /etc/timezone     && apk del tzdata
-
-# 安装必要的依赖（如果有）
-RUN apk add --no-cache ca-certificates
-
 # 创建应用目录
 RUN mkdir -p /app
 

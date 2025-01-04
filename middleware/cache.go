@@ -2,20 +2,17 @@
 package middleware
 
 import (
-	//"ZZDNS/logger"
 	"ZZDNS/logger"
 	"ZZDNS/shared"
+	"ZZDNS/utils"
 	"fmt"
+
 	"log"
 	"net"
-	"time"
 
 	"github.com/miekg/dns"
 )
 
-func generateCacheKey(name string, qtype uint16) string {
-	return fmt.Sprintf("%s_%d", name, qtype)
-}
 
 func CacheMiddleware(next dns.Handler) dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
@@ -25,12 +22,12 @@ func CacheMiddleware(next dns.Handler) dns.Handler {
 		}
 		srcIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
 	if err != nil {
-		//log.Printf("Failed to get source IP: %v", err)
+		log.Printf("Failed to get source IP: %v", err)
 		dns.HandleFailed(w, r)
 		return
 	}
 		// 生成缓存键
-		key := generateCacheKey(r.Question[0].Name, r.Question[0].Qtype)
+		key := utils.GenerateCacheKey(r.Question[0].Name, r.Question[0].Qtype)
 		// 检查缓存中是否存在响应
 		if cachedResponse, exists := shared.DnsCache.Get(key); exists {
 			cachedResponse.Id = r.Id  // 使用当前请求的 ID
@@ -44,11 +41,3 @@ func CacheMiddleware(next dns.Handler) dns.Handler {
 	})
 }
 
-func StartCacheCleanup(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for range ticker.C {
-			shared.DnsCache.Cleanup() // 使用共享的 DNS 缓存
-		}
-	}()
-}
