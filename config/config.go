@@ -13,19 +13,40 @@ import (
 type ServerConfig struct {
 	Port          string `yaml:"port"`
 	BlockList     string `yaml:"blocklist"`
-	V6            bool `yaml:"v6"`
+	V6            bool   `yaml:"v6"`
 	DefaultServer string `yaml:"defaultserver"`
 }
 
 type ForwardConfig struct {
-	Server string `yaml:"server"`
-	File   string `yaml:"file"`
-	V6     bool   `yaml:"v6"` // 保留 v6 字段
+	Server   string `yaml:"server"`
+	File     string `yaml:"file"`
+	V6       bool   `yaml:"v6"` // 保留 v6 字段
+	Domestic bool   `yaml:"domestic"`
+}
+
+type LoggingConfig struct {
+	File       string `yaml:"file"`
+	MaxSize    int64  `yaml:"max_size"`
+	MaxBackups int    `yaml:"max_backups"`
+	BufferSize int    `yaml:"buffer_size"`
+	BatchSize  int    `yaml:"batch_size"`
+}
+
+type ApiConfig struct {
+	Port string `yaml:"port"`
+}
+
+type IpsetConfig struct {
+	Name4 string `yaml:"name4"`
+	Name6 string `yaml:"name6"`
 }
 
 type Config struct {
 	Server  ServerConfig    `yaml:"Server"`
 	Forward []ForwardConfig `yaml:"Forward"`
+	Logging LoggingConfig   `yaml:"Logging"`
+	Api     ApiConfig       `yaml:"Api"`
+	Ipset   IpsetConfig     `yaml:"Ipset"`
 }
 
 // TrieNode represents a node in the Trie

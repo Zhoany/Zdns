@@ -12,19 +12,96 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
+var cfgPath string
 
-func StartServer(){
+func StartServer(path string) {
+	cfgPath = path
 	go StartApiServer()
 	StartDNSServer()
 }
-func StartApiServer(){
-	
+
+func StartApiServer() {
+	http.HandleFunc("/reload", func(w http.ResponseWriter, r *http.Request) {
+		if err := config.LoadConfig(cfgPath); err != nil {
+			logger.GetLogger().Error(fmt.Sprintf("reload failed: %v", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("fail"))
+			return
+		}
+		logger.GetLogger().Info("config reloaded via API")
+		_, _ = w.Write([]byte("ok"))
+	})
+	log.Printf("Starting API server on %s\n", config.CFG.Api.Port)
+	if err := http.ListenAndServe(config.CFG.Api.Port, nil); err != nil {
+		log.Fatalf("api server error: %v", err)
+	}
+}
+
+type upstreamResult struct {
+	resp   *dns.Msg
+	server string
+}
+
+func queryAllUpstreams(r *dns.Msg) (*dns.Msg, string, error) {
+	ch := make(chan upstreamResult, len(config.CFG.Forward))
+	for _, f := range config.CFG.Forward {
+		f := f
+		go func() {
+			req := r.Copy()
+			proto, addr := resolver.ParseUpstreamServer(f.Server)
+			resp, err := sendRequest(proto, req, addr)
+			if err == nil {
+				ch <- upstreamResult{resp: resp, server: f.Server}
+			} else {
+				ch <- upstreamResult{resp: nil, server: f.Server}
+			}
+		}()
+	}
+
+	var domestic *upstreamResult
+	var foreign *upstreamResult
+
+	for i := 0; i < len(config.CFG.Forward); i++ {
+		res := <-ch
+		if res.resp == nil {
+			continue
+		}
+		isDomestic := false
+		for _, ans := range res.resp.Answer {
+			switch ans.Header().Rrtype {
+			case dns.TypeA:
+				if utils.CheckIPInSet(ans.(*dns.A).A.String(), config.CFG.Ipset.Name4) {
+					isDomestic = true
+				}
+			case dns.TypeAAAA:
+				if utils.CheckIPInSet(ans.(*dns.AAAA).AAAA.String(), config.CFG.Ipset.Name6) {
+					isDomestic = true
+				}
+			}
+		}
+		if isDomestic && domestic == nil {
+			tmp := res
+			domestic = &tmp
+		} else if !isDomestic && foreign == nil {
+			tmp := res
+			foreign = &tmp
+		}
+	}
+
+	if domestic != nil {
+		return domestic.resp, domestic.server, nil
+	}
+	if foreign != nil {
+		return foreign.resp, foreign.server, nil
+	}
+	return nil, "", fmt.Errorf("no upstream response")
 }
 func StartDNSServer() {
 	handler := resolver.Chain(
@@ -74,20 +151,34 @@ func forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
 	maxCnameChainLength := 10 // 限制 CNAME 链长度，防止无限循环
 
 	for i := 0; i < maxCnameChainLength; i++ {
-		upstreamServer := resolver.GetUpstreamServer(r.Question[0].Name)
-		protocolType, address := resolver.ParseUpstreamServer(upstreamServer)
+		upstreamServer, matched := resolver.GetUpstreamServer(r.Question[0].Name)
+		var upstreamResponse *dns.Msg
+		var err error
+		var address string
+		if matched {
+			protocolType, addr := resolver.ParseUpstreamServer(upstreamServer)
+			address = addr
 
-		// 检查是否支持 IPv6 查询
-		if qtype == dns.TypeAAAA && !resolver.IsUpstreamIPv6Supported(upstreamServer) {
-			dns.HandleFailed(w, r)
-			return
-		}
+			// 检查是否支持 IPv6 查询
+			if qtype == dns.TypeAAAA && !resolver.IsUpstreamIPv6Supported(upstreamServer) {
+				dns.HandleFailed(w, r)
+				return
+			}
 
-		addressChain = append(addressChain, address)
-		upstreamResponse, err := sendRequest(protocolType, r, address)
-		if err != nil || upstreamResponse == nil || upstreamResponse.Answer == nil {
-			dns.HandleFailed(w, r)
-			return
+			addressChain = append(addressChain, address)
+			upstreamResponse, err = sendRequest(protocolType, r, addr)
+			if err != nil || upstreamResponse == nil || upstreamResponse.Answer == nil {
+				dns.HandleFailed(w, r)
+				return
+			}
+		} else {
+			upstreamResponse, upstreamServer, err = queryAllUpstreams(r)
+			if err != nil {
+				dns.HandleFailed(w, r)
+				return
+			}
+			_, address = resolver.ParseUpstreamServer(upstreamServer)
+			addressChain = append(addressChain, address)
 		}
 
 		foundNonCNAME := false
