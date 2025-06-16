@@ -1,0 +1,25 @@
+Server:
+  port: ":5300"
+  blocklist: "./blocklist.txt"
+  v6: false
+  defaultserver: "tls://1.1.1.1:853"
+Forward:
+  - server: "tls://1.1.1.1:853"
+    file: "./forward.list"
+    v6: false
+    domestic: false
+  - server: "tls://223.5.5.5:853"
+    file: "./cn.list"
+    v6: false
+    domestic: true
+Logging:
+  file: "logs/application.log"
+  max_size: 524288000
+  max_backups: 7
+  buffer_size: 100
+  batch_size: 10
+Api:
+  port: ":8080"
+Ipset:
+  name4: "cn4"
+  name6: "cn6"

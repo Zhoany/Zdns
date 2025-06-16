@@ -7,7 +7,7 @@ import (
 )
 
 // GetUpstreamServer 返回给定域名的上游服务器
-func GetUpstreamServer(domain string) string {
+func GetUpstreamServer(domain string) (string, bool) {
 	domain = strings.TrimSuffix(domain, ".")
 
 	// 分割域名部分
@@ -19,12 +19,12 @@ func GetUpstreamServer(domain string) string {
 		if server, found := config.DomainTrie.MatchDomain(subDomain); found {
 			// 记录匹配结果
 			//logger.GetLogger().Info("Matched Domain: " + subDomain + ", Upstream Server: " + server)
-			return server
+			return server, true
 		}
 	}
 
 	// 如果没有找到匹配的服务器，返回默认服务器
 	defaultServer := config.CFG.Server.DefaultServer
 	//logger.GetLogger().Info("No exact match found. Using Default Server: " + defaultServer)
-	return defaultServer
+	return defaultServer, false
 }

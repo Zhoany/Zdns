@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"ZZDNS/config"
+
 	"golang.org/x/exp/slog"
 )
 
@@ -25,6 +27,7 @@ type Logger struct {
 	maxSize    int64
 	maxBackups int
 	file       *os.File
+	batchSize  int
 }
 
 var (
@@ -33,7 +36,7 @@ var (
 )
 
 // NewLogger creates a new Logger instance and starts the logging goroutine
-func NewLogger(logFile string, maxSize int64, maxBackups int, bufferSize int) (*Logger, error) {
+func NewLogger(logFile string, maxSize int64, maxBackups int, bufferSize int, batchSize int) (*Logger, error) {
 	// 打开或创建日志文件
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -51,6 +54,7 @@ func NewLogger(logFile string, maxSize int64, maxBackups int, bufferSize int) (*
 		maxSize:    maxSize,
 		maxBackups: maxBackups,
 		file:       f,
+		batchSize:  batchSize,
 	}
 
 	// 启动日志处理goroutine
@@ -63,7 +67,23 @@ func NewLogger(logFile string, maxSize int64, maxBackups int, bufferSize int) (*
 // initLogger initializes the global logger instance
 func initLogger() {
 	var err error
-	instance, err = NewLogger("logs/application.log", 500*1024*1024, 7, 100) // 500MB, 7个备份
+	cfg := config.CFG.Logging
+	if cfg.File == "" {
+		cfg.File = "logs/application.log"
+	}
+	if cfg.MaxSize == 0 {
+		cfg.MaxSize = 500 * 1024 * 1024
+	}
+	if cfg.MaxBackups == 0 {
+		cfg.MaxBackups = 7
+	}
+	if cfg.BufferSize == 0 {
+		cfg.BufferSize = 100
+	}
+	if cfg.BatchSize == 0 {
+		cfg.BatchSize = 10
+	}
+	instance, err = NewLogger(cfg.File, cfg.MaxSize, cfg.MaxBackups, cfg.BufferSize, cfg.BatchSize)
 	if err != nil {
 		log.Fatalf("Error initializing logger: %v", err)
 	}
@@ -77,20 +97,39 @@ func GetLogger() *Logger {
 
 // processMessages processes log messages from the channel
 func (l *Logger) processMessages() {
-    defer l.wg.Done()
-    ctx := context.Background() // 使用背景上下文
-    for {
-        select {
-        case msg, ok := <-l.messages:
-            if !ok {
-                return // 通道已关闭，退出goroutine
-            }
-            // 检查文件大小并进行轮换
-            l.rotateLogIfNeeded()
-            // 记录日志信息
-            slog.Log(ctx, msg.Level, msg.Message, "time", msg.Time)
-        }
-    }
+	defer l.wg.Done()
+	ctx := context.Background()
+	buffer := make([]LogMessage, 0, l.batchSize)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	flush := func() {
+		for _, msg := range buffer {
+			l.rotateLogIfNeeded()
+			slog.Log(ctx, msg.Level, msg.Message, "time", msg.Time)
+		}
+		buffer = buffer[:0]
+	}
+
+	for {
+		select {
+		case msg, ok := <-l.messages:
+			if !ok {
+				if len(buffer) > 0 {
+					flush()
+				}
+				return
+			}
+			buffer = append(buffer, msg)
+			if len(buffer) >= l.batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			if len(buffer) > 0 {
+				flush()
+			}
+		}
+	}
 }
 
 // rotateLogIfNeeded checks the size of the current log file and rotates if necessary
