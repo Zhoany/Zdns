@@ -5,7 +5,7 @@ import (
 	"ZZDNS/logger"
 	"ZZDNS/shared"
 	"ZZDNS/utils"
-	"fmt"
+	"time"
 
 	"log"
 	"net"
@@ -16,6 +16,7 @@ import (
 
 func CacheMiddleware(next dns.Handler) dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		  start := time.Now()
 		if len(r.Question) == 0 {
 			next.ServeDNS(w, r)
 			return
@@ -32,8 +33,17 @@ func CacheMiddleware(next dns.Handler) dns.Handler {
 		if cachedResponse, exists := shared.DnsCache.Get(key); exists {
 			cachedResponse.Id = r.Id  // 使用当前请求的 ID
 			w.WriteMsg(cachedResponse) // 返回缓存的响应
-			
-			logger.GetLogger().Info(fmt.Sprintf("Source IP: %s,Cache hit: domain=%s",srcIP, r.Question[0].Name))
+			 elapsed := time.Since(start)
+			   var answers []string
+            for _, rr := range cachedResponse.Answer {
+                answers = append(answers, rr.String())
+            }
+			  logger.GetLogger().InfoCache(
+				srcIP,
+				r.Question[0].Name,
+				elapsed,
+				answers,
+			)
 			return
 		}
 

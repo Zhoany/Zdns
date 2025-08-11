@@ -2,7 +2,8 @@ package resolver
 
 import (
 	"ZZDNS/config"
-	"fmt"
+	
+	
 	"strings"
 )
 
@@ -21,12 +22,13 @@ func ParseUpstreamServer(upstreamServer string) (protocol string, address string
 // IsUpstreamIPv6Supported 检查上游服务器是否支持 IPv6 查询
 func IsUpstreamIPv6Supported(server string) bool {
 	if server == config.CFG.Server.DefaultServer {
-		fmt.Println("config.CFG.Server.V6")
+		
         return config.CFG.Server.V6 
     }
 	for _, forward := range config.CFG.Forward {
+		
         if forward.Server == server {
-			fmt.Println("config.CFG.Server.V6")
+
             return forward.V6 // 检查是否允许 IPv6
         }
     }

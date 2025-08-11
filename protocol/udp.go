@@ -1,7 +1,9 @@
 package protocol
 
 import (
-	"log"
+	"ZZDNS/logger"
+	"fmt"
+	_"log"
 
 	"github.com/miekg/dns"
 )
@@ -11,7 +13,13 @@ func UdpRequest(r *dns.Msg, upstream string) (*dns.Msg, error) {
 	client := new(dns.Client)
 	resp, _, err := client.Exchange(r, upstream)
 	if err != nil {
-		log.Printf("Failed to get response from UDP server: %v", err)
+		wrappedErr := fmt.Errorf("UDP FAILED: %w", err)
+		   logger.GetLogger().ErrorLog(
+        "0.0.0.0",
+        r.Question[0].Name,
+        "UPSTREAM",
+        wrappedErr,
+    )
 		return nil, err
 	}
 	return resp, nil

@@ -1,0 +1,23 @@
+Server:
+  port: ":53"
+  v6: false
+  blocklist: ./cfg.data/blocklist.txt
+  defaultserver: udp://8.8.8.8:53
+
+Forward:
+  - server: udp://223.6.6.6:53
+    file:  ./cfg.data/china-list.txt
+    v6: true
+  - server: udp://114.114.114.114:53
+    file:  ./cfg.data/apple-cn.txt
+    v6: false
+  - server: udp://10.17.253.253:53
+    file: ./cfg.data/syno-internal.txt
+    v6: false
+  - server: udp://10.17.192.82:53
+    file: ./cfg.data/syno-192.txt
+    v6: false 
+
+
+
+

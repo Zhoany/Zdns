@@ -70,7 +70,7 @@ func (c *DnsCache) PrintAllItems() {
 	defer c.mu.RUnlock()
 
 	for key, item := range c.items {
-		fmt.Printf("Key: %s, Name: %s, Type: %d, TTL: %d, Expiration: %s\n",
+		fmt.Printf("Key: %s Name: %s Type: %d TTL: %d, Expiration: %s\n",
 			key, item.Response.Question[0].Name, item.Response.Question[0].Qtype,
 			item.Response.Answer[0].Header().Ttl, item.Expiration)
 	}

@@ -9,7 +9,6 @@ import (
 	"ZZDNS/resolver"
 	"ZZDNS/shared"
 	"ZZDNS/utils"
-	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -18,167 +17,257 @@ import (
 	"github.com/miekg/dns"
 )
 
-
-func StartServer(){
-	go StartApiServer()
+func DNSServer() {
+	
 	StartDNSServer()
 }
-func StartApiServer(){
-	
-}
+
+
+
 func StartDNSServer() {
 	handler := resolver.Chain(
-		middleware.CacheMiddleware, // 添加缓存中间件
-		middleware.BlocklistMiddleware,
+		middleware.CacheMiddleware,
+
 	)(dns.HandlerFunc(forwardToUpstream))
 
-	server := &dns.Server{Addr: config.CFG.Server.Port, Net: "udp", Handler: handler, ReusePort: true}
+	// UDP Server
+	udpServer := &dns.Server{
+		Addr:      config.CFG.Server.Port,
+		Net:       "udp",
+		Handler:   handler,
+		ReusePort: true,
+	}
+	// TCP Server
+	tcpServer := &dns.Server{
+		Addr:      config.CFG.Server.Port,
+		Net:       "tcp",
+		Handler:   handler,
+		ReusePort: true,
+	}
 
-	// 启动清理过期缓存的定时器
+	// 启动定时缓存清理
 	utils.StartCacheCleanup(24 * time.Hour)
 
-	// 启动服务器
-	log.Printf("Starting DNS server on %s\n", server.Addr)
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to start DNS server: %v\n", err)
+	log.Printf("Starting DNS server on %s (udp)\n", config.CFG.Server.Port)
+	go func() {
+		if err := udpServer.ListenAndServe(); err != nil {
+			log.Fatalf("Failed to start UDP DNS server: %v\n", err)
+		}
+	}()
+
+	log.Printf("Starting DNS server on %s (tcp)\n", config.CFG.Server.Port)
+	if err := tcpServer.ListenAndServe(); err != nil {
+		log.Fatalf("Failed to start TCP DNS server: %v\n", err)
 	}
 }
 
-// 处理 DNS 查询
 func forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
-	if len(r.Question) == 0 {
-		dns.HandleFailed(w, r)
+	start := time.Now()
+	// 只支持单问
+	if len(r.Question) != 1 {
+		msg := new(dns.Msg)
+		msg.SetRcode(r, dns.RcodeFormatError)
+		w.WriteMsg(msg)
 		return
 	}
-
 	// 获取源IP
 	srcIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
 	if err != nil {
-		log.Printf("Failed to get source IP: %v", err)
-		dns.HandleFailed(w, r)
+		log.Printf("Failed to get source IP: %v\n", err)
+		msg := new(dns.Msg)
+		msg.SetRcode(r, dns.RcodeServerFailure)
+		w.WriteMsg(msg)
 		return
 	}
 
-	// 初始化响应消息
-	response := new(dns.Msg)
-	response.SetReply(r)
-
-	originalName := r.Question[0].Name
+	// 准备
+	origName := r.Question[0].Name
 	qtype := r.Question[0].Qtype
-	cnameChain := map[string]bool{} // 用于记录已经解析过的 CNAME 记录
-	var minTTL uint32 = 0           // 用于记录最小的 TTL
-	var logRecords []string
-	var cnameAddressChain []string
+	// 检查是否在 hosts 文件中
+	hostname := strings.TrimSuffix(origName, ".")
+
+	ip, ok := config.Hosts[hostname]
+
+	if ok {
+		resp := new(dns.Msg)
+		resp.SetReply(r)
+		header := dns.RR_Header{Name: origName, Rrtype: qtype, Class: dns.ClassINET, Ttl: 300}
+		parsed := net.ParseIP(ip)
+		var rr dns.RR
+		if qtype == dns.TypeA && parsed.To4() != nil {
+			rr = &dns.A{Hdr: header, A: parsed.To4()}
+		} else if qtype == dns.TypeAAAA && parsed.To16() != nil && parsed.To4() == nil {
+			rr = &dns.AAAA{Hdr: header, AAAA: parsed}
+		}
+		if rr != nil {
+			resp.Answer = []dns.RR{rr}
+		}
+		resp.RecursionAvailable = true
+		logResponse(srcIP, origName, []string{"HOST"}, resp, start)
+		w.WriteMsg(resp)
+		return
+	}
+
+	// 如果 AAAA 不支持，返回 NotImplemented
+	firstUp := resolver.GetUpstreamServer(origName)
+	if qtype == dns.TypeAAAA && !resolver.IsUpstreamIPv6Supported(firstUp) {
+		resp := new(dns.Msg)
+		resp.SetReply(r)
+		resp.Rcode = dns.RcodeNotImplemented
+		w.WriteMsg(resp)
+		return
+	}
+
+	// 迭代追踪 CNAME
+	const maxCname = 10
+	currentName := origName
+	visited := make(map[string]bool)
 	var addressChain []string
+	var upstreamResp *dns.Msg
 
-	maxCnameChainLength := 10 // 限制 CNAME 链长度，防止无限循环
-
-	for i := 0; i < maxCnameChainLength; i++ {
-		upstreamServer := resolver.GetUpstreamServer(r.Question[0].Name)
-		protocolType, address := resolver.ParseUpstreamServer(upstreamServer)
-
-		// 检查是否支持 IPv6 查询
-		if qtype == dns.TypeAAAA && !resolver.IsUpstreamIPv6Supported(upstreamServer) {
-			dns.HandleFailed(w, r)
-			return
-		}
-
-		addressChain = append(addressChain, address)
-		upstreamResponse, err := sendRequest(protocolType, r, address)
-		if err != nil || upstreamResponse == nil || upstreamResponse.Answer == nil {
-			dns.HandleFailed(w, r)
-			return
-		}
-
-		foundNonCNAME := false
-		foundNewCNAME := false
-
-		for _, ans := range upstreamResponse.Answer {
-			ttl := ans.Header().Ttl
-			if minTTL == 0 || ttl < minTTL {
-				minTTL = ttl
+	for i := 0; i < maxCname; i++ {
+		// 构造查询
+		query := new(dns.Msg)
+		query.SetQuestion(currentName, qtype)
+		query.Id = r.Id
+		query.RecursionDesired = true
+		// 保留 EDNS0
+		for _, extra := range r.Extra {
+			if opt, ok := extra.(*dns.OPT); ok {
+				query.Extra = append(query.Extra, opt)
 			}
+		}
 
-			switch ans.Header().Rrtype {
-			case dns.TypeA:
-				ip := ans.(*dns.A).A.String()
-				logRecords = append(logRecords, ip)
-				foundNonCNAME = true
+		// 选上游
+		up := resolver.GetUpstreamServer(currentName)
+		proto, addr := resolver.ParseUpstreamServer(up)
+		addressChain = append(addressChain, addr)
 
-			case dns.TypeAAAA:
-				ip := ans.(*dns.AAAA).AAAA.String()
-				logRecords = append(logRecords, ip)
-				foundNonCNAME = true
+		// 发送并处理 TC
+		upstreamResp, err = sendRequestWithRetry(proto, query, addr)
+		if err != nil || upstreamResp == nil {
+			fail := new(dns.Msg)
+			fail.SetRcode(r, dns.RcodeServerFailure)
+			w.WriteMsg(fail)
+			return
+		}
 
-			case dns.TypeCNAME:
-				cname := ans.(*dns.CNAME).Target
-				// 如果这个 cname 还没解析过，就准备下一轮继续查询它
-				if !cnameChain[cname] {
-					cnameChain[cname] = true
-					cnameAddressChain = append(cnameAddressChain, cname)
-					logRecords = append(logRecords, cname)
-					r.Question[0].Name = cname
-					foundNewCNAME = true
+		// 非 NOERROR（包括 NXDOMAIN、NotImp、FormErr 等）直接返回，并做负向缓存
+		if upstreamResp.Rcode != dns.RcodeSuccess {
+			cacheNegative(currentName, qtype, upstreamResp)
+			logResponse(srcIP, origName, addressChain, upstreamResp, start)
+			upstreamResp.RecursionAvailable = true
+			w.WriteMsg(upstreamResp)
+			return
+		}
+
+		// 检查 Answer 里有没有 A/AAAA，或新的 CNAME
+		foundA := false
+		foundC := false
+		for _, ans := range upstreamResp.Answer {
+			if ans.Header().Rrtype == dns.TypeA || ans.Header().Rrtype == dns.TypeAAAA {
+				foundA = true
+			}
+			if ans.Header().Rrtype == dns.TypeCNAME {
+				c := ans.(*dns.CNAME).Target
+				if !visited[c] {
+					visited[c] = true
+					currentName = c
+					foundC = true
 				}
 			}
-
-			// 不管是 CNAME 还是 A/AAAA，都要加到 response.Answer
-			response.Answer = append(response.Answer, ans)
 		}
-
-		// 如果已经找到 A/AAAA，则不再继续递归
-		if foundNonCNAME {
-			break
-		}
-
-		// 如果这一轮没有发现新的 CNAME，说明都解析过或者没有可递归的 CNAME，可退出
-		if !foundNewCNAME {
+		if foundA || !foundC {
 			break
 		}
 	}
 
-	// 如果达到最大 CNAME 链长度，认为可能出现循环，返回错误
-	if len(cnameChain) == maxCnameChainLength {
-		log.Println("CNAME chain too long, possible loop detected")
-		dns.HandleFailed(w, r)
+	// 最终结果
+	if upstreamResp == nil {
+		fail := new(dns.Msg)
+		fail.SetRcode(r, dns.RcodeServerFailure)
+		w.WriteMsg(fail)
 		return
 	}
-
-	// 在发送响应之前，缓存非错误的响应 (RcodeSuccess)
-	if response.Rcode == dns.RcodeSuccess {
-		if minTTL == 0 {
-			// 如果根本没找到任何记录，minTTL 还是 0，可以根据需要设一个缺省值或不缓存
-			minTTL = 0 // 也可以自定义
-		}
-		ttl := time.Duration(minTTL) * time.Second
-		cacheKey := utils.GenerateCacheKey(originalName, qtype)
-		shared.DnsCache.Set(cacheKey, response, ttl)
+	upstreamResp.Question = r.Question
+	// 正向缓存
+	if len(upstreamResp.Answer) > 0 {
+		cachePositive(origName, qtype, upstreamResp)
 	}
 
-	// 记录 IP / CNAME / CNAME 链 / 上游服务器链
-	if len(logRecords) > 0 {
-		joinedLogRecords := strings.Join(logRecords, ", ")
-		joinedCnameAddressChain := strings.Join(cnameAddressChain, " -> ")
-		joinedAddressChain := strings.Join(addressChain, " -> ")
-		logger.GetLogger().Info(fmt.Sprintf("Source IP: %s, Query: %s, Address Chain: %s, Results: %s, CNAME Chain: %s",
-			srcIP, originalName, joinedAddressChain, joinedLogRecords, joinedCnameAddressChain))
-	}
+	// 打印日志
+	logResponse(srcIP, origName, addressChain, upstreamResp, start)
 
-	response.RecursionAvailable = true
-	w.WriteMsg(response)
+	upstreamResp.RecursionAvailable = true
+	w.WriteMsg(upstreamResp)
 }
 
-func sendRequest(protocolType string, r *dns.Msg, address string) (*dns.Msg, error) {
-	switch protocolType {
+// sendRequestWithRetry 支持 UDP/DoT/DoH，UDP 且 TC=1时自动 TCP 重试
+func sendRequestWithRetry(proto string, msg *dns.Msg, addr string) (*dns.Msg, error) {
+	var resp *dns.Msg
+	var err error
+
+	switch proto {
 	case "udp":
-		return protocol.UdpRequest(r, address)
+		resp, err = protocol.UdpRequest(msg, addr)
+		if err == nil && resp.Truncated {
+			c := &dns.Client{Net: "tcp"}
+			resp, _, err = c.Exchange(msg, addr)
+		}
 	case "tls":
-		return protocol.DoTRequest(r, address)
+		resp, err = protocol.DoTRequest(msg, addr)
 	case "https":
-		return protocol.DoHRequest(r, address)
+		resp, err = protocol.DoHRequest(msg, addr)
 	default:
-		msg := new(dns.Msg)
-		msg.SetRcodeFormatError(r)
-		return msg, nil
+		resp = new(dns.Msg)
+		resp.SetRcodeFormatError(msg)
 	}
+
+	return resp, err
+}
+
+// 正向缓存 (RFC 1035)
+func cachePositive(name string, qtype uint16, msg *dns.Msg) {
+	var minTTL uint32
+	for _, rr := range msg.Answer {
+		if minTTL == 0 || rr.Header().Ttl < minTTL {
+			minTTL = rr.Header().Ttl
+		}
+	}
+	if minTTL == 0 {
+		return
+	}
+	shared.DnsCache.Set(utils.GenerateCacheKey(name, qtype), msg.Copy(), time.Duration(minTTL)*time.Second)
+}
+
+// 负向缓存 (RFC 2308)
+func cacheNegative(name string, qtype uint16, msg *dns.Msg) {
+	var negTTL uint32
+	for _, ns := range msg.Ns {
+		if soa, ok := ns.(*dns.SOA); ok {
+			negTTL = soa.Minttl
+			break
+		}
+	}
+	if negTTL == 0 {
+		return
+	}
+	shared.DnsCache.Set(utils.GenerateCacheKey(name, qtype), msg.Copy(), time.Duration(negTTL)*time.Second)
+}
+
+// 一行日志：源IP、查询、上游链、Rcode、Answer
+func logResponse(srcIP, query string, chain []string, resp *dns.Msg, start time.Time)  {
+	 elapsed := time.Since(start)
+	var answers []string
+	for _, rr := range resp.Answer {
+		answers = append(answers, rr.String())
+	}
+	logger.GetLogger().InfoUpstream(
+    srcIP,                      // 源 IP
+    query,                      // 查询名
+    strings.Join(chain, "->"),  // 上游链（以 "->" 连接）
+    resp.Rcode,                 // 响应码（int）
+    elapsed,                    // 耗时（time.Duration）
+    answers,                    // []string 回答列表
+)
 }

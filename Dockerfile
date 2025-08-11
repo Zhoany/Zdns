@@ -1,18 +1,22 @@
-# 使用 Alpine 作为基础镜像
-FROM alpine:latest
+# -------- Stage 1: build --------
+FROM golang:1.24.4 AS builder
 
-# 创建应用目录
-RUN mkdir -p /app
-
-# 复制应用程序到 /app 目录
-COPY target/zzdns /app/myapp
-
-# 设置工作目录
 WORKDIR /app
+COPY . .
 
-# 暴露 53 端口，用于 DNS 服务
-EXPOSE 53/udp
-EXPOSE 53/tcp
+ENV CGO_ENABLED=1
+RUN go build -o dns-server main.go
 
-# 设置默认命令
-CMD ["./myapp"]
+# -------- Stage 2: runtime --------
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y libsqlite3-0 ca-certificates && rm -rf /var/lib/apt/lists/* &apt-get update && apt-get install -y tzdata
+
+WORKDIR /app
+COPY --from=builder /app/dns-server /app/dns-server
+
+EXPOSE 5300/udp
+EXPOSE 5300/tcp
+EXPOSE 9898/tcp
+
+CMD ["./dns-server"]

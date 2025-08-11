@@ -12,19 +12,19 @@ var dotPool = pool.NewPool()
 func DoTRequest(msg *dns.Msg, upstream string) (*dns.Msg, error) {
 	conn, err := dotPool.GetDotConn(upstream)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get connection from pool: %v", err)
+		return nil, fmt.Errorf("DOT POOL FAILED: %v", err)
 	}
 	defer dotPool.PutDotConn(conn)
 
 	client := &dns.Conn{Conn: conn}
 	err = client.WriteMsg(msg)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to write message to DoT server: %v", err)
+		return nil, fmt.Errorf("DOT WRITE FAILED: %v", err)
 	}
 
 	resp, err := client.ReadMsg()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read response from DoT server: %v", err)
+		return nil, fmt.Errorf("DOT READ FAILED: %v", err)
 	}
 
 	return resp, nil
